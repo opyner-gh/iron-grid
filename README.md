@@ -2,6 +2,14 @@
 
 **Operation: Iron Grid** is a dieselpunk isometric turn-based tactical strategy game built in **Godot 4**. Inspired by the heavy mechanical atmosphere of *Ring of Red*, *Steel Battalion*, and *MechWarrior*, the grid-based tactical maneuvering of *Advance Wars* and *Fire Emblem*, and the directional card-flipping showdowns of *Final Fantasy VIII*'s *Triple Triad*.
 
+![Isometric Battlefield & Tactical HUD](screenshot_gameplay.png)
+
+*Tactical battlefield view: extruded 2.5D isometric terrain, movement range highlights, Dijkstra fuel path planning, and real-time telemetry HUD.*
+
+![Main Menu & AFW Codex](screenshot_main_menu.png)
+
+*Command HQ briefing console: 3 selectable battle theaters, satellite reconnaissance preview, and interactive Armored Walker Hangar Codex.*
+
 ---
 
 ## Core Gameplay & Turn Loop
@@ -106,6 +114,8 @@ Each turn cycles through three phases:
 iron-grid/
 ├── project.godot                   # Godot 4.7 project configuration & autoloads
 ├── icon.svg                        # Custom vector project icon
+├── screenshot_main_menu.png        # Command HQ briefing & codex screenshot
+├── screenshot_gameplay.png         # Tactical isometric battlefield screenshot
 ├── autoload/
 │   ├── GlobalState.gd              # Global turn/phase state, card/mech/map catalogs, combat log
 │   └── SoundManager.gd             # Procedural retro/dieselpunk WAV audio synthesizer
