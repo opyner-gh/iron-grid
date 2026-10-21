@@ -18,6 +18,8 @@ static func choose_best_action(
 	var player_units: Array[MechUnit] = unit_container.get_faction_units(MechData.Faction.PLAYER)
 	var start_pos: Vector2i = m_data.grid_pos
 	var start_tile: GridTileData = grid_map.get_tile(start_pos)
+	var obj_targets := _objective_targets(grid_map, map_def)
+	var deny_tiles := _imminent_defeat_tiles(grid_map, map_def)
 
 	# In-place baseline score (holding / entrenching & refueling)
 	var best_action: Dictionary = {
@@ -25,7 +27,7 @@ static func choose_best_action(
 		"target_pos": start_pos,
 		"path": [start_pos],
 		"fuel_spent": 0,
-		"score": _score_positional_tile(start_tile, m_data, player_units, map_def) + (18.0 if m_data.current_fuel <= 4 else 4.0)
+		"score": _score_positional_tile(start_tile, m_data, player_units, map_def, obj_targets) + (18.0 if m_data.current_fuel <= 4 else 4.0)
 	}
 
 	# On OFFENSE maps (where AI is the entrenched garrison), units standing on Objective Cities
@@ -62,6 +64,11 @@ static func choose_best_action(
 			# Huge bonus for finishing off an enemy walker
 			if est_dmg_def >= target_unit.mech_data.current_armor:
 				atk_score += 130.0
+			# Dislodging a walker that is holding an objective contests the capture before turn end
+			if dest_tile.is_objective and dest_tile.controlled_by != MechData.Faction.AI:
+				atk_score += 30.0
+			if deny_tiles.has(dest_pos):
+				atk_score += 150.0
 			# Caution if the counter-attack would destroy the AI walker without a kill trade
 			if est_dmg_atk >= m_data.current_armor and est_dmg_def < target_unit.mech_data.current_armor:
 				atk_score -= 95.0
@@ -77,7 +84,9 @@ static func choose_best_action(
 		else:
 			if dest_pos == start_pos:
 				continue
-			var pos_score: float = _score_positional_tile(dest_tile, m_data, player_units, map_def)
+			var pos_score: float = _score_positional_tile(dest_tile, m_data, player_units, map_def, obj_targets)
+			if deny_tiles.has(dest_pos):
+				pos_score += 150.0 # Retaking this node breaks the Coalition's pending objective victory
 			# Small penalty for burning all fuel without engaging
 			pos_score -= float(fuel_spent) * 1.1
 			if m_data.current_fuel - fuel_spent <= 1:
@@ -95,11 +104,46 @@ static func choose_best_action(
 	grid_map.clear_highlights()
 	return best_action
 
+## Player-held objective tiles that would hand the Coalition an objective victory at turn end
+## (every bridgehead on Pitched maps, any Syndicate HQ on Offense maps). Empty if no such threat.
+static func _imminent_defeat_tiles(grid_map: IsoGridMap, map_def: MapDefinition) -> Array[Vector2i]:
+	var tiles: Array[Vector2i] = []
+	match map_def.strategy_mode:
+		MapDefinition.StrategyMode.PITCHED_BATTLE:
+			for obj in map_def.objectives:
+				var td: GridTileData = grid_map.get_tile(obj["pos"])
+				if td == null or td.controlled_by != MechData.Faction.PLAYER:
+					return []
+				tiles.append(td.coords)
+		MapDefinition.StrategyMode.OFFENSE:
+			for hq_pos in map_def.hq_positions:
+				var td: GridTileData = grid_map.get_tile(hq_pos)
+				if td != null and td.controlled_by == MechData.Faction.PLAYER:
+					tiles.append(hq_pos)
+	return tiles
+
+## Objective tiles the AI should steer toward. Assaulting AIs (Defense / Pitched maps) home in on the
+## objectives they don't hold yet, so one capture doesn't anchor the whole wave; the Offense garrison
+## keeps measuring from every bunker it guards.
+static func _objective_targets(grid_map: IsoGridMap, map_def: MapDefinition) -> Array[Vector2i]:
+	var all_objs: Array[Vector2i] = []
+	var unheld: Array[Vector2i] = []
+	for obj in map_def.objectives:
+		var opos: Vector2i = obj["pos"]
+		all_objs.append(opos)
+		var td: GridTileData = grid_map.get_tile(opos)
+		if td != null and td.controlled_by != MechData.Faction.AI:
+			unheld.append(opos)
+	if map_def.strategy_mode == MapDefinition.StrategyMode.OFFENSE or unheld.is_empty():
+		return all_objs
+	return unheld
+
 static func _score_positional_tile(
 	tile: GridTileData,
 	m_data: MechData,
 	player_units: Array[MechUnit],
-	map_def: MapDefinition
+	map_def: MapDefinition,
+	obj_targets: Array[Vector2i]
 ) -> float:
 	if tile == null:
 		return -999.0
@@ -130,8 +174,7 @@ static func _score_positional_tile(
 			min_enemy_dist = d
 
 	var min_obj_dist: float = 999.0
-	for obj in map_def.objectives:
-		var opos: Vector2i = obj["pos"]
+	for opos in obj_targets:
 		var od: float = float(absi(tile.coords.x - opos.x) + absi(tile.coords.y - opos.y))
 		if od < min_obj_dist:
 			min_obj_dist = od

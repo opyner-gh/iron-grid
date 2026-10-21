@@ -36,18 +36,21 @@ func _ready() -> void:
 	visible = false
 
 	_btn_speed = Button.new()
+	_btn_speed.focus_mode = Control.FOCUS_NONE # Space/Enter are handled in _unhandled_input
 	_btn_speed.text = "SPEED: 1X"
 	_btn_speed.custom_minimum_size = Vector2(130, 38)
 	_btn_speed.pressed.connect(_on_speed_pressed)
 	add_child(_btn_speed)
 
 	_btn_skip = Button.new()
+	_btn_skip.focus_mode = Control.FOCUS_NONE # Space/Enter are handled in _unhandled_input
 	_btn_skip.text = "INSTANT RESOLVE"
 	_btn_skip.custom_minimum_size = Vector2(160, 38)
 	_btn_skip.pressed.connect(_on_skip_pressed)
 	add_child(_btn_skip)
 
 	_btn_confirm = Button.new()
+	_btn_confirm.focus_mode = Control.FOCUS_NONE # Space/Enter are handled in _unhandled_input
 	_btn_confirm.text = "CONFIRM OUTCOME [SPACE]"
 	_btn_confirm.custom_minimum_size = Vector2(260, 44)
 	_btn_confirm.pressed.connect(_on_confirm_pressed)
@@ -60,7 +63,7 @@ func start_showdown(result: SkirmishEngine.SkirmishResult) -> void:
 	_current_step_idx = -1
 	_all_steps_done = false
 	_step_timer = 0.15
-	_step_interval = 0.35 if _fast_mode else 0.72
+	_step_interval = 0.32 if _fast_mode else 0.72
 	_vis_atk_armor = float(result.atk_armor_before)
 	_vis_def_armor = float(result.def_armor_before)
 	_atk_flash = 0.0
@@ -362,6 +365,7 @@ func _draw_tactical_matrix(font: Font, rect: Rect2) -> void:
 	var e_count: int = 0
 
 	for idx in range(9):
+		@warning_ignore("integer_division")
 		var r: int = idx / 3
 		var c: int = idx % 3
 		var cx: float = start_x + c * (cell_w + gap)

@@ -31,6 +31,9 @@ var objectives: Array[Dictionary] = []
 # Array of Dictionary: { "chassis": String, "callsign": String, "pos": Vector2i, "faction": int }
 var spawns: Array[Dictionary] = []
 
+# OFFENSE maps: objective nodes whose capture (held through the enemy turn) wins the mission
+var hq_positions: Array[Vector2i] = []
+
 func get_strategy_name() -> String:
 	match strategy_mode:
 		StrategyMode.PITCHED_BATTLE:
@@ -44,10 +47,10 @@ func get_strategy_name() -> String:
 func get_victory_condition_text() -> String:
 	match strategy_mode:
 		StrategyMode.PITCHED_BATTLE:
-			return "Destroy all Syndicate mechs OR control majority of Objective Cities by Turn %d." % turn_limit
+			return "Destroy all Syndicate mechs, hold every Objective City at turn end, OR control the majority when Turn %d ends." % turn_limit
 		StrategyMode.DEFENSE:
-			return "Hold the Citadel Command Node until Turn %d ends OR eliminate all attackers." % turn_limit
+			return "Hold at least one Citadel node until Turn %d ends OR eliminate all attackers." % turn_limit
 		StrategyMode.OFFENSE:
-			return "Capture the Syndicate HQ Bunker OR destroy all enemy defenders within %d Turns." % turn_limit
+			return "Capture a Syndicate HQ Bunker and hold it through the enemy turn, OR destroy all defenders within %d Turns." % turn_limit
 	return "Eliminate enemy forces."
 

@@ -24,6 +24,11 @@ Each turn cycles through three phases:
 3. **Syndicate AI Phase**:
    - Enemy walkers evaluate reachable tiles, approach vectors, high-ground advantages, fuel reserves, and objective priorities tailored to the map's strategic profile (`Pitched Battle`, `Fortified Defense`, or `Blitzkrieg Offense`).
 
+### Victory Conditions
+- **Annihilation** of either side ends the mission immediately.
+- **Objective victories** (holding every bridgehead, holding a Syndicate HQ bunker, or the Syndicate overrunning every Citadel node) are confirmed at the **end of a full turn**, so a capture has to survive the enemy's response phase.
+- When the **turn limit** expires, the mission is scored by its strategic profile (bridgehead majority, Citadel held, or HQ not taken).
+
 ---
 
 ## Terrain & Elevation Matrix
@@ -74,7 +79,7 @@ Each turn cycles through three phases:
 2. **Bastion Redoubt (`FORTIFIED DEFENSE`)**
    - Asymmetric defense of Citadel Höhenburg (`300m–400m`) against a numerically superior 5-walker Syndicate assault column advancing up the western valley roads.
 3. **Breakthrough at Kessel-9 (`BLITZKRIEG OFFENSE`)**
-   - Asymmetric offensive leading a 5-walker mobile spearhead to breach entrenched Syndicate gate guards and capture the Eastern HQ Bunker within 10 turns.
+   - Asymmetric offensive leading a 5-walker mobile spearhead to breach entrenched Syndicate gate guards and capture and hold the Eastern HQ Bunker within 10 turns.
 
 ---
 
@@ -124,6 +129,9 @@ iron-grid/
         ├── MainMenu.gd             # War-room menu & interactive Mech Hangar Codex
         ├── UIOverlay.gd            # In-game CRT telemetry HUD, terrain inspector & forecast
         └── SkirmishModal.gd        # Animated Resolution Phase showdown screen
+└── tests/
+    ├── Playtest.tscn               # Headless automated playtest entry scene
+    └── playtest.gd                 # Rule checks + full-mission playthroughs with per-frame invariants
 ```
 
 ---
@@ -137,3 +145,13 @@ iron-grid/
 godot --path .
 ```
 
+---
+
+## Automated Playtest
+
+`tests/Playtest.tscn` checks the core rules (fuel costs, optimal pathfinding, skirmish forecasts, card placement, elevation modifiers, and victory conditions). It then plays complete missions on every map with greedy, turtle, and seeded-random commanders. Every frame it asserts game-state invariants: no stacked walkers, fuel and armor in range, sprites matching their grid tiles, and nothing advancing after game over.
+
+```bash
+godot --headless --path . res://tests/Playtest.tscn          # exit code = number of failures
+PLAYTEST_POLICIES=greedy PLAYTEST_VERBOSE=1 godot --headless --path . res://tests/Playtest.tscn
+```
