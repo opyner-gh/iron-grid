@@ -180,21 +180,21 @@ func _on_root_draw() -> void:
 	# 2. Left Panel — Active Mech Telemetry & Deck HUD
 	var display_mech: MechData = selected_mech if selected_mech != null else hovered_mech
 	if display_mech != null:
-		_draw_left_unit_panel(font, Rect2(16, 72, 326, 480), display_mech)
+		_draw_left_unit_panel(font, Rect2(12, 68, 286, 472), display_mech)
 	else:
-		var empty_box := Rect2(16, 72, 326, 96)
+		var empty_box := Rect2(12, 68, 286, 96)
 		root_ctrl.draw_rect(empty_box, Color(0.07, 0.09, 0.07, 0.88), true)
 		root_ctrl.draw_rect(empty_box, Color(0.35, 0.40, 0.32, 0.8), false, 1.5)
-		root_ctrl.draw_string(font, Vector2(30, 102), "NO WALKER SELECTED", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.85, 0.78, 0.42))
-		root_ctrl.draw_string(font, Vector2(30, 125), "Left-Click any friendly walker to plot", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.72, 0.76, 0.68))
-		root_ctrl.draw_string(font, Vector2(30, 144), "fuel range & engage Syndicate forces.", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.72, 0.76, 0.68))
+		root_ctrl.draw_string(font, Vector2(26, 98), "NO WALKER SELECTED", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.85, 0.78, 0.42))
+		root_ctrl.draw_string(font, Vector2(26, 121), "Left-Click any friendly walker to plot", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.72, 0.76, 0.68))
+		root_ctrl.draw_string(font, Vector2(26, 140), "fuel range & engage Syndicate forces.", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.72, 0.76, 0.68))
 
 	# 3. Right Panel — Terrain & Elevation Inspector + Combat Forecast
 	if hovered_tile != null:
-		_draw_right_terrain_panel(font, Rect2(vp.x - 356, 72, 340, 440))
+		_draw_right_terrain_panel(font, Rect2(vp.x - 308, 68, 296, 435))
 
 	# 4. Bottom Comms Log & Controls Bar
-	var bot_rect := Rect2(16, vp.y - 102, vp.x - 32, 88)
+	var bot_rect := Rect2(12, vp.y - 102, vp.x - 24, 88)
 	root_ctrl.draw_rect(bot_rect, Color(0.06, 0.08, 0.06, 0.90), true)
 	root_ctrl.draw_rect(bot_rect, Color(0.38, 0.44, 0.34, 0.85), false, 1.4)
 	root_ctrl.draw_string(font, bot_rect.position + Vector2(14, 18), "TACTICAL COMMS LOG // (PAN: WASD / Arrows / Right-Drag | ZOOM: Wheel | WAIT/REFUEL: R | END TURN: E)", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.85, 0.72, 0.32))
@@ -205,13 +205,13 @@ func _on_root_draw() -> void:
 		var line_y: float = bot_rect.position.y + 38 + (i - start_idx) * 18
 		root_ctrl.draw_string(font, Vector2(bot_rect.position.x + 16, line_y), GlobalState.combat_log[i], HORIZONTAL_ALIGNMENT_LEFT, int(bot_rect.size.x - 32), 12, Color(0.76, 0.86, 0.74))
 
-	# 5. Phase Transition Banner
+	# 5. Phase Transition Banner (positioned below top bar so it never obscures the battlefield)
 	if _banner_timer > 0.0:
 		var b_alpha: float = clampf(_banner_timer * 1.5, 0.0, 0.95)
-		var b_rect := Rect2(vp.x * 0.5 - 320, vp.y * 0.44 - 36, 640, 72)
+		var b_rect := Rect2(vp.x * 0.5 - 260, 68, 520, 44)
 		root_ctrl.draw_rect(b_rect, Color(0.08, 0.10, 0.08, b_alpha), true)
-		root_ctrl.draw_rect(b_rect, Color(0.95, 0.78, 0.28, b_alpha), false, 2.5)
-		root_ctrl.draw_string(font, b_rect.position + Vector2(20, 44), _banner_text, HORIZONTAL_ALIGNMENT_CENTER, 600, 22, Color(0.98, 0.86, 0.35, b_alpha))
+		root_ctrl.draw_rect(b_rect, Color(0.95, 0.78, 0.28, b_alpha), false, 2.0)
+		root_ctrl.draw_string(font, b_rect.position + Vector2(16, 29), _banner_text, HORIZONTAL_ALIGNMENT_CENTER, 488, 17, Color(0.98, 0.86, 0.35, b_alpha))
 
 	# 6. Optional Field Manual Modal
 	if show_manual_modal:
@@ -279,8 +279,8 @@ func _draw_left_unit_panel(font: Font, rect: Rect2, m: MechData) -> void:
 	elif m.mountain_gear:
 		gear_note = "QUAD CLIMBING GEAR (-2 Mountain/Climb Fuel)"
 	elif m.fuel_efficiency_mod > 0:
-		gear_note = "HEAVY CHASSIS (+1 Fuel off-road; use Roads!)"
-	root_ctrl.draw_string(font, Vector2(x, y), "MOBILITY: " + gear_note, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.75, 0.84, 0.72))
+		gear_note = "HEAVY CHASSIS (+1 Fuel off-road)"
+	root_ctrl.draw_string(font, Vector2(x, y), "MOBILITY: " + gear_note, HORIZONTAL_ALIGNMENT_LEFT, int(bar_w), 11, Color(0.75, 0.84, 0.72))
 
 	y += 22
 	root_ctrl.draw_string(font, Vector2(x, y), "EQUIPMENT DECK (SKIRMISH LOADOUT):", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.88, 0.84, 0.72))

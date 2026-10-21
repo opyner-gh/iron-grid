@@ -51,51 +51,61 @@ func _draw() -> void:
 
 	var dim_factor: float = 0.65 if (mech_data.has_moved and mech_data.faction == MechData.Faction.PLAYER) else 1.0
 
-	# Selection ring under feet
+	# Isometric selection diamond ring on the tile surface
 	if is_selected:
 		var pulse: float = 0.5 + 0.5 * sin(_anim_time * 5.0)
-		draw_arc(Vector2(0, 2), 24.0 + pulse * 2.0, 0, TAU, 32, Color(1.0, 0.84, 0.25, 0.95), 2.5)
+		var rw: float = 34.0 + pulse * 3.0
+		var rh: float = 17.0 + pulse * 1.5
+		var ring_pts := PackedVector2Array([
+			Vector2(0, -rh),
+			Vector2(rw, 0),
+			Vector2(0, rh),
+			Vector2(-rw, 0),
+			Vector2(0, -rh)
+		])
+		draw_polyline(ring_pts, Color(1.0, 0.86, 0.25, 0.95), 2.5)
 
-	# Draw dieselpunk walker silhouette
-	draw_mech_silhouette(self, Vector2(0, -4), mech_data.chassis_id, mech_data.faction, 1.0, _anim_time, dim_factor, _hit_flash > 0.0)
+	# Draw dieselpunk walker silhouette anchored inside the tile diamond
+	# Feet planted at y = +6, torso centered at y = -8, top at y = -20 (strictly inside [-29.5, +29.5])
+	draw_mech_silhouette(self, Vector2(0, 6), mech_data.chassis_id, mech_data.faction, 0.78, _anim_time, dim_factor, _hit_flash > 0.0)
 
-	# Entrenched shield chevron
+	# Entrenched shield chevron next to hull
 	if mech_data.is_entrenched:
-		var sh_pos := Vector2(22, -26)
-		draw_circle(sh_pos, 7.0, Color(0.1, 0.14, 0.1, 0.9))
-		draw_arc(sh_pos, 7.0, 0, TAU, 16, Color(0.45, 0.95, 0.65), 1.8)
+		var sh_pos := Vector2(18, -10)
+		draw_circle(sh_pos, 6.0, Color(0.1, 0.14, 0.1, 0.9))
+		draw_arc(sh_pos, 6.0, 0, TAU, 16, Color(0.45, 0.95, 0.65), 1.6)
 
-	# Overhead Telemetry Plate (Armor Bar + Fuel Bar + Callsign)
-	var bar_w: float = 48.0
+	# Base Plinth Telemetry Plate (Callsign + Armor Bar + Fuel Bar) tucked at the walker's feet inside its own tile
+	var bar_w: float = 46.0
 	var bar_x: float = -bar_w * 0.5
-	var bar_y: float = -56.0
+	var bar_y: float = 17.0
 
 	# Backing plate
-	draw_rect(Rect2(bar_x - 2, bar_y - 12, bar_w + 4, 22), Color(0.06, 0.07, 0.06, 0.86), true)
-	var faction_border := Color(0.45, 0.85, 0.45, 0.9) if mech_data.faction == MechData.Faction.PLAYER else Color(0.95, 0.32, 0.26, 0.9)
-	draw_rect(Rect2(bar_x - 2, bar_y - 12, bar_w + 4, 22), faction_border, false, 1.2)
+	draw_rect(Rect2(bar_x - 2, bar_y - 10, bar_w + 4, 19), Color(0.05, 0.06, 0.05, 0.90), true)
+	var faction_border := Color(0.45, 0.88, 0.45, 0.95) if mech_data.faction == MechData.Faction.PLAYER else Color(0.95, 0.32, 0.26, 0.95)
+	draw_rect(Rect2(bar_x - 2, bar_y - 10, bar_w + 4, 19), faction_border, false, 1.2)
 
 	# Short callsign + Ready dot
 	var font: Font = ThemeDB.fallback_font
 	var short_name: String = mech_data.callsign.split(" ")[0]
-	draw_string(font, Vector2(bar_x, bar_y - 2), short_name, HORIZONTAL_ALIGNMENT_LEFT, int(bar_w), 9, Color(0.92, 0.90, 0.82))
+	draw_string(font, Vector2(bar_x, bar_y - 1), short_name, HORIZONTAL_ALIGNMENT_LEFT, int(bar_w - 6), 8, Color(0.95, 0.93, 0.85))
 
 	# Ready status pip
 	var pip_col := Color(0.35, 0.95, 0.45) if not mech_data.has_moved else Color(0.45, 0.45, 0.42)
 	if mech_data.faction == MechData.Faction.AI:
 		pip_col = Color(0.95, 0.35, 0.3)
-	draw_circle(Vector2(bar_x + bar_w - 3, bar_y - 6), 2.5, pip_col)
+	draw_circle(Vector2(bar_x + bar_w - 3, bar_y - 5), 2.2, pip_col)
 
-	# Armor Bar (4px tall)
+	# Armor Bar (3px tall)
 	var armor_ratio: float = mech_data.get_armor_ratio()
 	var armor_col := Color(0.35, 0.88, 0.42) if armor_ratio > 0.5 else (Color(0.95, 0.72, 0.22) if armor_ratio > 0.25 else Color(0.95, 0.25, 0.2))
-	draw_rect(Rect2(bar_x, bar_y + 1, bar_w, 4), Color(0.18, 0.18, 0.18), true)
-	draw_rect(Rect2(bar_x, bar_y + 1, bar_w * armor_ratio, 4), armor_col, true)
+	draw_rect(Rect2(bar_x, bar_y + 1, bar_w, 3), Color(0.18, 0.18, 0.18), true)
+	draw_rect(Rect2(bar_x, bar_y + 1, bar_w * armor_ratio, 3), armor_col, true)
 
-	# Fuel Bar (3px tall)
+	# Fuel Bar (2.5px tall)
 	var fuel_ratio: float = mech_data.get_fuel_ratio()
-	draw_rect(Rect2(bar_x, bar_y + 6, bar_w, 3), Color(0.15, 0.15, 0.15), true)
-	draw_rect(Rect2(bar_x, bar_y + 6, bar_w * fuel_ratio, 3), Color(0.32, 0.78, 0.92), true)
+	draw_rect(Rect2(bar_x, bar_y + 5, bar_w, 2.5), Color(0.15, 0.15, 0.15), true)
+	draw_rect(Rect2(bar_x, bar_y + 5, bar_w * fuel_ratio, 2.5), Color(0.32, 0.78, 0.92), true)
 
 ## Static procedural renderer used on the battlefield, HUD portrait, Skirmish Showdown, and Mech Hangar.
 static func draw_mech_silhouette(

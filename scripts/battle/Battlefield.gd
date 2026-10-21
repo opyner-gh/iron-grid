@@ -18,6 +18,7 @@ var _phase_before_resolution: GlobalState.TurnPhase = GlobalState.TurnPhase.PLAY
 # Pending collision context for Skirmish Resolution
 var _pending_attacker: MechUnit = null
 var _pending_defender: MechUnit = null
+var _pending_start_coords: Vector2i = Vector2i.ZERO
 var _pending_from_coords: Vector2i = Vector2i.ZERO
 var _pending_target_coords: Vector2i = Vector2i.ZERO
 
@@ -59,10 +60,10 @@ func start_mission(map_idx: int) -> void:
 func center_camera_on_map() -> void:
 	if current_map_def == null:
 		return
-	var mid_coords := Vector2i(current_map_def.width / 2, current_map_def.height / 2)
-	var mid_screen := grid_map.grid_to_screen(mid_coords, true)
-	camera.position = mid_screen + Vector2(0, 10)
-	camera.zoom = Vector2(1.05, 1.05)
+	var cx: float = float(current_map_def.width - current_map_def.height) * (IsoGridMap.TILE_W * 0.25)
+	var cy: float = float(current_map_def.width + current_map_def.height - 2) * (IsoGridMap.TILE_H * 0.25)
+	camera.position = Vector2(cx, cy + 8.0)
+	camera.zoom = Vector2(0.86, 0.86)
 
 func _process(delta: float) -> void:
 	# Smooth keyboard camera panning
@@ -257,10 +258,10 @@ func _execute_unit_movement(unit: MechUnit, target_coords: Vector2i, path: Array
 
 	unit.animate_move_along_screen_points(screen_pts, func():
 		_is_animating_move = false
-		_on_unit_movement_finished(unit, from_coords, target_coords, fuel_spent)
+		_on_unit_movement_finished(unit, start_coords, from_coords, target_coords, fuel_spent)
 	)
 
-func _on_unit_movement_finished(unit: MechUnit, from_coords: Vector2i, target_coords: Vector2i, fuel_spent: int) -> void:
+func _on_unit_movement_finished(unit: MechUnit, start_coords: Vector2i, from_coords: Vector2i, target_coords: Vector2i, fuel_spent: int) -> void:
 	# Perform Collision Check on destination node!
 	var opposing_unit := unit_container.check_opposing_collision(unit)
 	if opposing_unit != null:
@@ -269,7 +270,7 @@ func _on_unit_movement_finished(unit: MechUnit, from_coords: Vector2i, target_co
 				unit.mech_data.callsign, fuel_spent, opposing_unit.mech_data.callsign, target_coords.x, target_coords.y
 			]
 		)
-		_trigger_skirmish_resolution(unit, opposing_unit, from_coords, target_coords)
+		_trigger_skirmish_resolution(unit, opposing_unit, start_coords, from_coords, target_coords)
 		return
 
 	# Non-collision move completed
@@ -335,12 +336,13 @@ func _on_end_turn_requested() -> void:
 # =============================================================================
 # TURN FLOW: SKIRMISH RESOLUTION PHASE (AUTO-BATTLE SHOWDOWN)
 # =============================================================================
-func _trigger_skirmish_resolution(attacker: MechUnit, defender: MechUnit, from_coords: Vector2i, target_coords: Vector2i) -> void:
+func _trigger_skirmish_resolution(attacker: MechUnit, defender: MechUnit, start_coords: Vector2i, from_coords: Vector2i, target_coords: Vector2i) -> void:
 	_phase_before_resolution = GlobalState.current_phase
 	GlobalState.set_phase(GlobalState.TurnPhase.RESOLUTION_PHASE)
 
 	_pending_attacker = attacker
 	_pending_defender = defender
+	_pending_start_coords = start_coords
 	_pending_from_coords = from_coords
 	_pending_target_coords = target_coords
 
@@ -387,13 +389,15 @@ func _on_skirmish_modal_closed(result: SkirmishEngine.SkirmishResult) -> void:
 					_pending_attacker.mech_data.grid_pos = _pending_target_coords
 					_pending_attacker.position = grid_map.grid_to_screen(_pending_target_coords, true)
 				else:
-					_pending_attacker.mech_data.grid_pos = _pending_from_coords
-					_pending_attacker.position = grid_map.grid_to_screen(_pending_from_coords, true)
+					var fallback := _get_safe_fallback_coords(_pending_attacker, _pending_from_coords, _pending_start_coords)
+					_pending_attacker.mech_data.grid_pos = fallback
+					_pending_attacker.position = grid_map.grid_to_screen(fallback, true)
 		else:
 			# Defender repelled the assault -> Attacker falls back to its approach node
-			_pending_attacker.mech_data.grid_pos = _pending_from_coords
+			var fallback := _get_safe_fallback_coords(_pending_attacker, _pending_from_coords, _pending_start_coords)
+			_pending_attacker.mech_data.grid_pos = fallback
 			_pending_attacker.animate_move_along_screen_points(
-				[_pending_attacker.position, grid_map.grid_to_screen(_pending_from_coords, true)],
+				[_pending_attacker.position, grid_map.grid_to_screen(fallback, true)],
 				func(): pass
 			)
 
@@ -414,6 +418,16 @@ func _on_skirmish_modal_closed(result: SkirmishEngine.SkirmishResult) -> void:
 	elif _phase_before_resolution == GlobalState.TurnPhase.AI_PHASE:
 		var t := get_tree().create_timer(0.35)
 		t.timeout.connect(_process_next_ai_unit)
+
+func _get_safe_fallback_coords(attacker: MechUnit, from_coords: Vector2i, start_coords: Vector2i) -> Vector2i:
+	if unit_container.get_unit_at(from_coords, attacker) == null:
+		return from_coords
+	if unit_container.get_unit_at(start_coords, attacker) == null:
+		return start_coords
+	var adj := unit_container.find_retreat_tile(from_coords, _pending_target_coords, grid_map)
+	if adj != Vector2i(-1, -1):
+		return adj
+	return start_coords
 
 # =============================================================================
 # TURN FLOW: SYNDICATE AI PHASE

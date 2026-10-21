@@ -10,8 +10,8 @@ signal tile_clicked(coords: Vector2i, tile: GridTileData)
 
 const TILE_W: float = 118.0
 const TILE_H: float = 59.0
-const ELEV_STEP: float = 16.0
-const BASE_THICKNESS: float = 22.0
+const ELEV_STEP: float = 12.0
+const BASE_THICKNESS: float = 20.0
 
 var grid_width: int = 10
 var grid_height: int = 8
@@ -165,6 +165,10 @@ func compute_reachable_tiles(unit: MechData, occupied_units: Dictionary) -> Dict
 			var next_pos: Vector2i = current + d
 			if not is_valid_coords(next_pos):
 				continue
+			# Cannot launch an engagement onto an enemy node from a tile occupied by another friendly unit
+			if occupied_units.has(next_pos) and occupied_units[next_pos].faction != unit.faction:
+				if current != start and occupied_units.has(current):
+					continue
 			var next_tile: GridTileData = get_tile(next_pos)
 			var step_fuel: int = unit.get_step_fuel_cost(cur_tile, next_tile)
 			var new_cost: int = cur_cost + step_fuel
