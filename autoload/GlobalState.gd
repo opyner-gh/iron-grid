@@ -403,6 +403,7 @@ func _init_maps() -> void:
 		{ "pos": Vector2i(8, 3), "label": "Syndicate HQ North", "owner": 1 },
 		{ "pos": Vector2i(8, 4), "label": "Syndicate HQ South", "owner": 1 }
 	]
+	map3.hq_positions = [Vector2i(8, 3), Vector2i(8, 4)]
 	map3.spawns = [
 		# Player Strike Force (5 Units on West Spearhead)
 		{ "chassis": "moloch",     "callsign": "SPEAR-1 (Brenner)", "pos": Vector2i(1, 3), "faction": 0 },

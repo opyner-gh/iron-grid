@@ -107,6 +107,7 @@ func _layout_ui() -> void:
 	# Right column: 6 Mech Codex selector buttons (2 rows of 3)
 	var right_x: float = vp.x - 456
 	for i in range(_chassis_buttons.size()):
+		@warning_ignore("integer_division")
 		var r: int = i / 3
 		var c: int = i % 3
 		_chassis_buttons[i].position = Vector2(right_x + c * 138, 152 + r * 40)

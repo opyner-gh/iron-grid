@@ -131,7 +131,9 @@ static func resolve_skirmish(
 
 	# Effective Firepower & Armor Ratings
 	res.atk_effective_firepower = maxi(10, int(round(float(attacker.firepower) * (1.0 + float(res.atk_total_mod_pct) / 100.0))))
-	res.atk_effective_armor = maxi(8, int(round(float(attacker.armor_rating) * (1.0 + float(from_tile.get_defense_modifier_pct() + res.atk_elev_mod_pct) / 100.0))))
+	# High ground also deflects return fire (+10% Armor per level); attacking uphill only costs firepower
+	var atk_elev_armor_pct: int = maxi(0, res.elev_diff) * 10
+	res.atk_effective_armor = maxi(8, int(round(float(attacker.armor_rating) * (1.0 + float(from_tile.get_defense_modifier_pct() + atk_elev_armor_pct) / 100.0))))
 
 	res.def_effective_firepower = maxi(10, int(round(float(defender.firepower) * (1.0 + float(target_tile.get_attack_modifier_pct() + res.def_elev_mod_pct) / 100.0))))
 	res.def_effective_armor = maxi(8, int(round(float(defender.armor_rating) * (1.0 + float(res.def_total_mod_pct) / 100.0))))
@@ -165,9 +167,10 @@ static func resolve_skirmish(
 		s.grid_idx = i
 		board.append(s)
 
-	# Tactical placement sequence across the 3x3 board so cards always clash on multiple edges:
-	# Center (4), Top-Center (1), Middle-Left (3), Middle-Right (5), Bottom-Center (7), Top-Left (0)
-	var placement_order: Array[int] = [4, 1, 3, 5, 7, 0]
+	# Tactical placement sequence across the 3x3 board so every card after the opener contests an
+	# opposing card (the attacker's final card closes on two defender edges, the defender's on two):
+	# Center (4), Top-Center (1), Top-Right (2), Middle-Left (3), Top-Left (0), Middle-Right (5)
+	var placement_order: Array[int] = [4, 1, 2, 3, 0, 5]
 
 	for bout_idx in range(3):
 		# Attacker places card `bout_idx`
@@ -213,14 +216,14 @@ static func resolve_skirmish(
 	var atk_mitigation: float = float(res.atk_effective_armor) * 0.55 + float(atk_card_shd) * 0.50
 	res.total_dmg_to_attacker = clampi(int(round(raw_def_strike - atk_mitigation)), 8, 120)
 
-	# Distribute damage numbers across the 6 steps for visual telemetry animation
-	_distribute_step_damage(res)
-
 	res.def_armor_after = maxi(0, res.def_armor_before - res.total_dmg_to_defender)
 	# If defender is destroyed by overwhelming assault, attacker takes 25% less final return fire
 	if res.def_armor_after == 0 and res.atk_cards_held >= res.def_cards_held:
 		res.total_dmg_to_attacker = int(round(float(res.total_dmg_to_attacker) * 0.75))
 	res.atk_armor_after = maxi(0, res.atk_armor_before - res.total_dmg_to_attacker)
+
+	# Distribute the final damage numbers across the 6 steps for visual telemetry animation
+	_distribute_step_damage(res)
 
 	res.defender_destroyed = (res.def_armor_after <= 0)
 	res.attacker_destroyed = (res.atk_armor_after <= 0)
@@ -279,6 +282,7 @@ static func _place_card_on_board(
 	step.card_placed = card
 	step.slot_index = slot_idx
 
+	@warning_ignore("integer_division")
 	var row: int = slot_idx / 3
 	var col: int = slot_idx % 3
 
