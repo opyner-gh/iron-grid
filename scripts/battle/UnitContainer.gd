@@ -1,0 +1,123 @@
+class_name UnitContainer
+extends Node2D
+
+## Manages all active MechUnit instances on the battlefield, Y-sorted for isometric depth.
+## Performs node collision checks to detect when two opposing units occupy the same grid node.
+
+var units: Array[MechUnit] = []
+
+func _ready() -> void:
+	y_sort_enabled = true
+
+func clear_units() -> void:
+	for u in units:
+		if is_instance_valid(u):
+			u.queue_free()
+	units.clear()
+
+func spawn_units_for_map(map_def: MapDefinition, grid_map: IsoGridMap) -> void:
+	clear_units()
+	var idx: int = 0
+	for sp in map_def.spawns:
+		idx += 1
+		var chassis_id: String = str(sp.get("chassis", "vanguard"))
+		var callsign: String = str(sp.get("callsign", "UNIT-%d" % idx))
+		var pos: Vector2i = sp.get("pos", Vector2i.ZERO)
+		var fac_int: int = int(sp.get("faction", 0))
+		var fac: MechData.Faction = MechData.Faction.PLAYER if fac_int == 0 else MechData.Faction.AI
+
+		var m_data := GlobalState.create_mech_instance(chassis_id, fac, callsign, pos, str(idx))
+		var m_node := MechUnit.new()
+		add_child(m_node)
+		m_node.setup(m_data, grid_map.grid_to_screen(pos, true))
+		units.append(m_node)
+
+func get_unit_at(coords: Vector2i, exclude_unit: MechUnit = null) -> MechUnit:
+	for u in units:
+		if not is_instance_valid(u) or u == exclude_unit:
+			continue
+		if u.mech_data != null and u.mech_data.is_alive() and u.mech_data.grid_pos == coords:
+			return u
+	return null
+
+## Collision check: returns the opposing MechUnit if `moving_unit` now occupies the same node as an enemy.
+func check_opposing_collision(moving_unit: MechUnit) -> MechUnit:
+	if moving_unit == null or moving_unit.mech_data == null:
+		return null
+	var node_pos: Vector2i = moving_unit.mech_data.grid_pos
+	for u in units:
+		if not is_instance_valid(u) or u == moving_unit:
+			continue
+		if u.mech_data != null and u.mech_data.is_alive():
+			if u.mech_data.grid_pos == node_pos and u.mech_data.faction != moving_unit.mech_data.faction:
+				return u
+	return null
+
+func build_occupied_map(exclude_unit: MechUnit = null) -> Dictionary:
+	var occ: Dictionary = {}
+	for u in units:
+		if not is_instance_valid(u) or u == exclude_unit:
+			continue
+		if u.mech_data != null and u.mech_data.is_alive():
+			occ[u.mech_data.grid_pos] = u.mech_data
+	return occ
+
+func get_faction_units(faction: MechData.Faction) -> Array[MechUnit]:
+	var list: Array[MechUnit] = []
+	for u in units:
+		if is_instance_valid(u) and u.mech_data != null and u.mech_data.is_alive():
+			if u.mech_data.faction == faction:
+				list.append(u)
+	return list
+
+func remove_destroyed_unit(u: MechUnit) -> void:
+	if u == null:
+		return
+	units.erase(u)
+	if is_instance_valid(u):
+		_spawn_explosion_effect(u.position)
+		u.queue_free()
+
+func _spawn_explosion_effect(screen_pos: Vector2) -> void:
+	var fx := Node2D.new()
+	fx.position = screen_pos
+	add_child(fx)
+	var tween := create_tween()
+	fx.set_meta("t", 0.0)
+	fx.draw.connect(func():
+		var t: float = float(fx.get_meta("t", 0.0))
+		var r1: float = lerpf(8.0, 52.0, t)
+		var alpha: float = clampf(1.0 - t, 0.0, 1.0)
+		fx.draw_circle(Vector2(0, -14), r1, Color(1.0, 0.45, 0.12, alpha * 0.65))
+		fx.draw_circle(Vector2(0, -14), r1 * 0.55, Color(1.0, 0.92, 0.55, alpha * 0.85))
+		fx.draw_arc(Vector2(0, -14), r1 * 1.1, 0, TAU, 24, Color(0.95, 0.25, 0.1, alpha), 3.0)
+	)
+	tween.tween_method(func(val: float):
+		if is_instance_valid(fx):
+			fx.set_meta("t", val)
+			fx.queue_redraw()
+	, 0.0, 1.0, 0.48)
+	tween.tween_callback(func():
+		if is_instance_valid(fx):
+			fx.queue_free()
+	)
+
+## Finds a valid empty adjacent tile for a dislodged defender to retreat into.
+## Prefers tiles pushed away from `attacker_from`. Returns `Vector2i(-1, -1)` if completely surrounded.
+func find_retreat_tile(defender_pos: Vector2i, attacker_from: Vector2i, grid_map: IsoGridMap) -> Vector2i:
+	var push_dir: Vector2i = defender_pos - attacker_from
+	var candidates: Array[Vector2i] = []
+	if push_dir != Vector2i.ZERO:
+		candidates.append(defender_pos + push_dir)
+	var all_dirs: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+	for d in all_dirs:
+		var cand: Vector2i = defender_pos + d
+		if not candidates.has(cand) and cand != attacker_from:
+			candidates.append(cand)
+
+	for cand in candidates:
+		if not grid_map.is_valid_coords(cand):
+			continue
+		if get_unit_at(cand) == null:
+			return cand
+	return Vector2i(-1, -1)

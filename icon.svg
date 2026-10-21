@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="16" fill="#1b1e19"/>
+  <rect x="6" y="6" width="116" height="116" rx="12" fill="none" stroke="#c8963e" stroke-width="4"/>
+  <polygon points="64,18 108,42 64,66 20,42" fill="#3a4434" stroke="#8fa37e" stroke-width="3"/>
+  <polygon points="20,42 64,66 64,82 20,58" fill="#283024" stroke="#5c6b50" stroke-width="2"/>
+  <polygon points="108,42 64,66 64,82 108,58" fill="#1e241b" stroke="#5c6b50" stroke-width="2"/>
+  <rect x="46" y="30" width="36" height="26" rx="4" fill="#5a5243" stroke="#e0a94f" stroke-width="3"/>
+  <rect x="54" y="36" width="20" height="8" fill="#ff6b2b"/>
+  <line x1="82" y1="38" x2="106" y2="26" stroke="#b5aea0" stroke-width="6" stroke-linecap="round"/>
+  <text x="64" y="108" font-family="monospace" font-size="16" font-weight="bold" fill="#e0a94f" text-anchor="middle">IRON GRID</text>
+</svg>
+

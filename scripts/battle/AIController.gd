@@ -1,0 +1,153 @@
+class_name AIController
+extends RefCounted
+
+## Tactical AI Decision Engine for Kriegs-Syndikat Forces
+## Evaluates reachable tiles, approach vectors, terrain/elevation modifiers, and skirmish forecasts
+## to choose between attacking player walkers, capturing objectives, holding high ground, or refueling.
+
+static func choose_best_action(
+	ai_unit: MechUnit,
+	grid_map: IsoGridMap,
+	unit_container: UnitContainer,
+	map_def: MapDefinition
+) -> Dictionary:
+	var m_data: MechData = ai_unit.mech_data
+	var occ_map: Dictionary = unit_container.build_occupied_map(ai_unit)
+	var reachable: Dictionary = grid_map.compute_reachable_tiles(m_data, occ_map)
+
+	var player_units: Array[MechUnit] = unit_container.get_faction_units(MechData.Faction.PLAYER)
+	var start_pos: Vector2i = m_data.grid_pos
+	var start_tile: GridTileData = grid_map.get_tile(start_pos)
+
+	# In-place baseline score (holding / entrenching & refueling)
+	var best_action: Dictionary = {
+		"type": "WAIT_ENTRENCH",
+		"target_pos": start_pos,
+		"path": [start_pos],
+		"fuel_spent": 0,
+		"score": _score_positional_tile(start_tile, m_data, player_units, map_def) + (18.0 if m_data.current_fuel <= 4 else 4.0)
+	}
+
+	# On OFFENSE maps (where AI is the entrenched garrison), units standing on Objective Cities
+	# strongly prefer holding their bunker unless they can favorably smash an adjacent intruder.
+	if map_def.strategy_mode == MapDefinition.StrategyMode.OFFENSE and start_tile.is_objective and start_tile.controlled_by == MechData.Faction.AI:
+		best_action["score"] += 38.0
+
+	for pos_key in reachable.keys():
+		var dest_pos: Vector2i = pos_key
+		var info: Dictionary = reachable[dest_pos]
+		var path: Array[Vector2i] = info["path"]
+		var fuel_spent: int = info["fuel_spent"]
+		var dest_tile: GridTileData = grid_map.get_tile(dest_pos)
+
+		if info["is_attack"]:
+			var target_unit: MechUnit = unit_container.get_unit_at(dest_pos, ai_unit)
+			if target_unit == null or target_unit.mech_data == null:
+				continue
+			var from_pos: Vector2i = path[path.size() - 2] if path.size() >= 2 else start_pos
+			var from_tile: GridTileData = grid_map.get_tile(from_pos)
+
+			var forecast: Dictionary = SkirmishEngine.compute_forecast(
+				m_data, target_unit.mech_data, from_tile, dest_tile
+			)
+			var est_dmg_def: int = forecast["est_dmg_to_def"]
+			var est_dmg_atk: int = forecast["est_dmg_to_atk"]
+			var card_diff: int = int(forecast["atk_cards_held"]) - int(forecast["def_cards_held"])
+
+			var atk_score: float = 45.0
+			atk_score += float(est_dmg_def - est_dmg_atk) * 1.35
+			atk_score += float(card_diff) * 16.0
+			atk_score += float(forecast["atk_mod_pct"] - forecast["def_mod_pct"]) * 0.45
+
+			# Huge bonus for finishing off an enemy walker
+			if est_dmg_def >= target_unit.mech_data.current_armor:
+				atk_score += 130.0
+			# Caution if the counter-attack would destroy the AI walker without a kill trade
+			if est_dmg_atk >= m_data.current_armor and est_dmg_def < target_unit.mech_data.current_armor:
+				atk_score -= 95.0
+
+			if atk_score > best_action["score"]:
+				best_action = {
+					"type": "ENGAGE",
+					"target_pos": dest_pos,
+					"path": path,
+					"fuel_spent": fuel_spent,
+					"score": atk_score
+				}
+		else:
+			if dest_pos == start_pos:
+				continue
+			var pos_score: float = _score_positional_tile(dest_tile, m_data, player_units, map_def)
+			# Small penalty for burning all fuel without engaging
+			pos_score -= float(fuel_spent) * 1.1
+			if m_data.current_fuel - fuel_spent <= 1:
+				pos_score -= 10.0
+
+			if pos_score > best_action["score"]:
+				best_action = {
+					"type": "MOVE",
+					"target_pos": dest_pos,
+					"path": path,
+					"fuel_spent": fuel_spent,
+					"score": pos_score
+				}
+
+	grid_map.clear_highlights()
+	return best_action
+
+static func _score_positional_tile(
+	tile: GridTileData,
+	m_data: MechData,
+	player_units: Array[MechUnit],
+	map_def: MapDefinition
+) -> float:
+	if tile == null:
+		return -999.0
+	var score: float = 0.0
+
+	# 1. Terrain Defense & Elevation value
+	score += float(tile.get_defense_modifier_pct()) * 0.65
+	score += float(tile.elevation) * 7.5
+	if tile.terrain_type == GridTileData.TerrainType.RIVER:
+		score -= 26.0 # Avoid stopping in exposed rivers!
+	elif tile.terrain_type == GridTileData.TerrainType.CITY:
+		score += 18.0
+	elif tile.terrain_type == GridTileData.TerrainType.MOUNTAIN and m_data.mountain_gear:
+		score += 16.0
+
+	# 2. Objective Control value
+	if tile.is_objective:
+		if tile.controlled_by != MechData.Faction.AI:
+			score += 52.0 # High priority to capture player/neutral objective cities!
+		else:
+			score += 24.0 # Good to garrison friendly objectives
+
+	# 3. Distance to Player Units & Objectives based on Strategy Mode
+	var min_enemy_dist: float = 999.0
+	for pu in player_units:
+		var d: float = float(absi(tile.coords.x - pu.mech_data.grid_pos.x) + absi(tile.coords.y - pu.mech_data.grid_pos.y))
+		if d < min_enemy_dist:
+			min_enemy_dist = d
+
+	var min_obj_dist: float = 999.0
+	for obj in map_def.objectives:
+		var opos: Vector2i = obj["pos"]
+		var od: float = float(absi(tile.coords.x - opos.x) + absi(tile.coords.y - opos.y))
+		if od < min_obj_dist:
+			min_obj_dist = od
+
+	match map_def.strategy_mode:
+		MapDefinition.StrategyMode.DEFENSE:
+			# On Defense map, AI is the assaulting wave -> push aggressively toward objectives & defenders!
+			score -= min_obj_dist * 6.5
+			score -= min_enemy_dist * 4.5
+		MapDefinition.StrategyMode.OFFENSE:
+			# On Offense map, AI is the defending garrison -> hold defensive line & stay near objectives
+			score -= min_obj_dist * 7.0
+			score -= min_enemy_dist * 2.2
+		_:
+			# Pitched Battle -> balance closing on enemies & seizing central objectives
+			score -= min_enemy_dist * 4.8
+			score -= min_obj_dist * 3.8
+
+	return score
