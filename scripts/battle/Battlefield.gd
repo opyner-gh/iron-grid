@@ -42,12 +42,6 @@ func _ready() -> void:
 
 func start_mission(map_idx: int) -> void:
 	GlobalState.reset_battle_state()
-	# Drop any transient turn state left over from a previous run of this battlefield (Redeploy)
-	selected_unit = null
-	_is_animating_move = false
-	_ai_queue.clear()
-	_pending_attacker = null
-	_pending_defender = null
 	var idx: int = clampi(map_idx, 0, GlobalState.maps.size() - 1)
 	current_map_def = GlobalState.maps[idx]
 	ui_overlay.map_def = current_map_def
@@ -142,7 +136,21 @@ func _begin_player_phase(is_first_turn: bool = false) -> void:
 	_deselect_unit()
 
 	var p_units := unit_container.get_faction_units(MechData.Faction.PLAYER)
-	_apply_turn_upkeep(p_units, not is_first_turn)
+	for u in p_units:
+		var m := u.mech_data
+		m.has_moved = false
+		m.is_entrenched = false
+		u.position = grid_map.grid_to_screen(m.grid_pos, true)
+		if not is_first_turn:
+			var refuel_amt: int = m.passive_refuel
+			var tile := grid_map.get_tile(m.grid_pos)
+			if tile != null and tile.terrain_type == GridTileData.TerrainType.CITY:
+				refuel_amt += 4
+				var healed: int = mini(12, m.max_armor - m.current_armor)
+				m.current_armor += healed
+				if healed > 0:
+					GlobalState.add_log("%s repaired +%d Armor at City Depot." % [m.callsign, healed])
+			m.current_fuel = mini(m.max_fuel, m.current_fuel + refuel_amt)
 
 	_sync_hud_counts()
 	ui_overlay.trigger_phase_banner("TURN %02d // PLAYER COMMAND PHASE" % GlobalState.turn_number)
@@ -151,37 +159,6 @@ func _begin_player_phase(is_first_turn: bool = false) -> void:
 	# Auto-select first available player unit for convenience
 	if p_units.size() > 0:
 		_select_unit(p_units[0])
-
-## Start-of-phase upkeep shared by both factions: clears last turn's orders, then (optionally)
-## applies passive diesel refuel plus City Depot resupply (+4 Fuel) and repairs (+12 Armor).
-func _apply_turn_upkeep(units: Array[MechUnit], include_refuel: bool) -> void:
-	for u in units:
-		var m := u.mech_data
-		m.has_moved = false
-		m.is_entrenched = false
-		if not include_refuel:
-			continue
-		var refuel_amt: int = m.passive_refuel
-		var tile := grid_map.get_tile(m.grid_pos)
-		if tile != null and tile.terrain_type == GridTileData.TerrainType.CITY:
-			refuel_amt += 4
-			var healed: int = mini(12, m.max_armor - m.current_armor)
-			m.current_armor += healed
-			if healed > 0:
-				GlobalState.add_log("%s repaired +%d Armor at City Depot." % [m.callsign, healed])
-		m.current_fuel = mini(m.max_fuel, m.current_fuel + refuel_amt)
-
-## WAIT / REFUEL order shared by both factions: ends the unit's turn entrenched (+15% DEF),
-## restores up to 5 Fuel and patches +8 Armor when holding a City. Returns the fuel gained.
-func _entrench_unit(m: MechData) -> int:
-	m.has_moved = true
-	m.is_entrenched = true
-	var gained_fuel: int = mini(5, m.max_fuel - m.current_fuel)
-	m.current_fuel += gained_fuel
-	var td := grid_map.get_tile(m.grid_pos)
-	if td != null and td.terrain_type == GridTileData.TerrainType.CITY:
-		m.current_armor = mini(m.max_armor, m.current_armor + 8)
-	return gained_fuel
 
 func _select_unit(u: MechUnit) -> void:
 	if selected_unit != null and is_instance_valid(selected_unit):
@@ -212,7 +189,8 @@ func _deselect_unit() -> void:
 		selected_unit.queue_redraw()
 	selected_unit = null
 	ui_overlay.selected_mech = null
-	ui_overlay.current_forecast.clear()
+	ui_overlay.hovered_reach_info = {}
+	ui_overlay.current_forecast = {}
 	grid_map.clear_highlights()
 
 func _on_tile_hovered(coords: Vector2i, _tile: GridTileData) -> void:
@@ -226,8 +204,8 @@ func _refresh_hover_telemetry(coords: Vector2i) -> void:
 
 	if grid_map.reachable_info.has(coords):
 		var r_info: Dictionary = grid_map.reachable_info[coords]
-		ui_overlay.hovered_reach_info = r_info
-		if r_info["is_attack"] and selected_unit != null and u_at != null:
+		ui_overlay.hovered_reach_info = r_info.duplicate(true)
+		if r_info.get("is_attack", false) and selected_unit != null and u_at != null:
 			var path: Array[Vector2i] = r_info["path"]
 			var from_pos: Vector2i = path[path.size() - 2] if path.size() >= 2 else selected_unit.mech_data.grid_pos
 			var from_tile := grid_map.get_tile(from_pos)
@@ -235,11 +213,10 @@ func _refresh_hover_telemetry(coords: Vector2i) -> void:
 				selected_unit.mech_data, u_at.mech_data, from_tile, td
 			)
 		else:
-			ui_overlay.current_forecast.clear()
+			ui_overlay.current_forecast = {}
 	else:
-		# Reassign rather than clear(): the old dict is shared with grid_map.reachable_info
 		ui_overlay.hovered_reach_info = {}
-		ui_overlay.current_forecast.clear()
+		ui_overlay.current_forecast = {}
 
 func _on_tile_clicked(coords: Vector2i, _tile: GridTileData) -> void:
 	if GlobalState.current_phase != GlobalState.TurnPhase.PLAYER_PHASE or _is_animating_move:
@@ -251,7 +228,9 @@ func _on_tile_clicked(coords: Vector2i, _tile: GridTileData) -> void:
 	if selected_unit != null and selected_unit.mech_data.faction == MechData.Faction.PLAYER and not selected_unit.mech_data.has_moved:
 		if grid_map.reachable_info.has(coords) and coords != selected_unit.mech_data.grid_pos:
 			var info: Dictionary = grid_map.reachable_info[coords]
-			_execute_unit_movement(selected_unit, coords, info["path"], info["fuel_spent"])
+			var move_path: Array[Vector2i] = info["path"].duplicate()
+			var move_fuel: int = int(info["fuel_spent"])
+			_execute_unit_movement(selected_unit, coords, move_path, move_fuel)
 			return
 
 	# 2. Otherwise, clicking any unit selects it to inspect its telemetry & fuel range
@@ -266,7 +245,14 @@ func _execute_unit_movement(unit: MechUnit, target_coords: Vector2i, path: Array
 	_is_animating_move = true
 	var m_data := unit.mech_data
 	var start_coords: Vector2i = m_data.grid_pos
-	var from_coords: Vector2i = path[path.size() - 2] if path.size() >= 2 else start_coords
+	var move_path: Array[Vector2i] = path.duplicate()
+	var from_coords: Vector2i = move_path[move_path.size() - 2] if move_path.size() >= 2 else start_coords
+
+	var screen_pts: Array[Vector2] = []
+	for p in move_path:
+		screen_pts.append(grid_map.grid_to_screen(p, true))
+	if screen_pts.size() < 2:
+		screen_pts = [unit.position, grid_map.grid_to_screen(target_coords, true)]
 
 	m_data.prev_grid_pos = from_coords
 	m_data.current_fuel = maxi(0, m_data.current_fuel - fuel_spent)
@@ -275,13 +261,13 @@ func _execute_unit_movement(unit: MechUnit, target_coords: Vector2i, path: Array
 	m_data.is_entrenched = false
 
 	grid_map.clear_highlights()
-	ui_overlay.current_forecast.clear()
-
-	var screen_pts: Array[Vector2] = []
-	for p in path:
-		screen_pts.append(grid_map.grid_to_screen(p, true))
+	ui_overlay.hovered_reach_info = {}
+	ui_overlay.current_forecast = {}
 
 	unit.animate_move_along_screen_points(screen_pts, func():
+		if is_instance_valid(unit):
+			unit.position = grid_map.grid_to_screen(target_coords, true)
+			unit.queue_redraw()
 		_is_animating_move = false
 		_on_unit_movement_finished(unit, start_coords, from_coords, target_coords, fuel_spent)
 	)
@@ -325,7 +311,14 @@ func _on_wait_refuel_requested() -> void:
 		return
 
 	var m := selected_unit.mech_data
-	var gained_fuel: int = _entrench_unit(m)
+	m.has_moved = true
+	m.is_entrenched = true
+	var gained_fuel: int = mini(5, m.max_fuel - m.current_fuel)
+	m.current_fuel += gained_fuel
+
+	var td := grid_map.get_tile(m.grid_pos)
+	if td != null and td.terrain_type == GridTileData.TerrainType.CITY:
+		m.current_armor = mini(m.max_armor, m.current_armor + 8)
 
 	GlobalState.add_log("%s entrenched at (%d,%d) [+15%% DEF, +%d Fuel]." % [m.callsign, m.grid_pos.x, m.grid_pos.y, gained_fuel])
 	grid_map.clear_highlights()
@@ -394,7 +387,9 @@ func _on_skirmish_modal_closed(result: SkirmishEngine.SkirmishResult) -> void:
 				_pending_defender.mech_data.grid_pos = retreat_coords
 				_pending_defender.animate_move_along_screen_points(
 					[_pending_defender.position, grid_map.grid_to_screen(retreat_coords, true)],
-					func(): pass
+					func():
+						if is_instance_valid(_pending_defender):
+							_pending_defender.position = grid_map.grid_to_screen(retreat_coords, true)
 				)
 				_pending_attacker.mech_data.grid_pos = _pending_target_coords
 				_pending_attacker.position = grid_map.grid_to_screen(_pending_target_coords, true)
@@ -403,7 +398,6 @@ func _on_skirmish_modal_closed(result: SkirmishEngine.SkirmishResult) -> void:
 				# Defender has no retreat tile -> overrun crush damage, attacker steps back to approach tile
 				_pending_defender.mech_data.current_armor = maxi(0, _pending_defender.mech_data.current_armor - 15)
 				if not _pending_defender.mech_data.is_alive():
-					GlobalState.add_log("%s crushed with no line of retreat!" % _pending_defender.mech_data.callsign)
 					unit_container.remove_destroyed_unit(_pending_defender)
 					_pending_attacker.mech_data.grid_pos = _pending_target_coords
 					_pending_attacker.position = grid_map.grid_to_screen(_pending_target_coords, true)
@@ -417,7 +411,9 @@ func _on_skirmish_modal_closed(result: SkirmishEngine.SkirmishResult) -> void:
 			_pending_attacker.mech_data.grid_pos = fallback
 			_pending_attacker.animate_move_along_screen_points(
 				[_pending_attacker.position, grid_map.grid_to_screen(fallback, true)],
-				func(): pass
+				func():
+					if is_instance_valid(_pending_attacker):
+						_pending_attacker.position = grid_map.grid_to_screen(fallback, true)
 			)
 
 	_pending_attacker = null
@@ -458,7 +454,17 @@ func _begin_ai_phase() -> void:
 	GlobalState.add_log("--- SYNDICATE AI COMMAND PHASE INITIATED ---")
 
 	_ai_queue = unit_container.get_faction_units(MechData.Faction.AI)
-	_apply_turn_upkeep(_ai_queue, true)
+	for au in _ai_queue:
+		var m := au.mech_data
+		m.has_moved = false
+		m.is_entrenched = false
+		au.position = grid_map.grid_to_screen(m.grid_pos, true)
+		var refuel_amt: int = m.passive_refuel
+		var tile := grid_map.get_tile(m.grid_pos)
+		if tile != null and tile.terrain_type == GridTileData.TerrainType.CITY:
+			refuel_amt += 4
+			m.current_armor = mini(m.max_armor, m.current_armor + 10)
+		m.current_fuel = mini(m.max_fuel, m.current_fuel + refuel_amt)
 
 	var t := get_tree().create_timer(0.65)
 	t.timeout.connect(_process_next_ai_unit)
@@ -490,7 +496,9 @@ func _execute_single_ai_turn(ai_unit: MechUnit) -> void:
 		)
 		var action_type: String = decision.get("type", "WAIT_ENTRENCH")
 		if action_type == "WAIT_ENTRENCH":
-			_entrench_unit(ai_unit.mech_data)
+			ai_unit.mech_data.has_moved = true
+			ai_unit.mech_data.is_entrenched = true
+			ai_unit.mech_data.current_fuel = mini(ai_unit.mech_data.max_fuel, ai_unit.mech_data.current_fuel + 5)
 			GlobalState.add_log("%s entrenched & refueled at (%d,%d)." % [
 				ai_unit.mech_data.callsign, ai_unit.mech_data.grid_pos.x, ai_unit.mech_data.grid_pos.y
 			])
@@ -499,8 +507,8 @@ func _execute_single_ai_turn(ai_unit: MechUnit) -> void:
 			wait_t.timeout.connect(_process_next_ai_unit)
 		else:
 			var target_pos: Vector2i = decision["target_pos"]
-			var path: Array[Vector2i] = decision["path"]
-			var fuel_spent: int = decision["fuel_spent"]
+			var path: Array[Vector2i] = decision["path"].duplicate()
+			var fuel_spent: int = int(decision["fuel_spent"])
 			_execute_unit_movement(ai_unit, target_pos, path, fuel_spent)
 	)
 
@@ -559,27 +567,22 @@ func _check_victory_conditions(end_of_full_turn: bool = false) -> bool:
 		return true
 
 	# 2. Strategy-Specific Objective Checks
-	# Objective victories are only confirmed at the end of a full turn, so a capture must be held
-	# through the enemy's response phase (otherwise turn-1 dashes into unguarded cities win outright).
 	if current_map_def != null:
 		match current_map_def.strategy_mode:
 			MapDefinition.StrategyMode.OFFENSE:
-				# Player wins by holding any Syndicate HQ Bunker at the end of a turn
-				var hq_held := false
-				for hq_pos in current_map_def.hq_positions:
-					var hq := grid_map.get_tile(hq_pos)
-					if hq != null and hq.is_objective and hq.controlled_by == MechData.Faction.PLAYER:
-						hq_held = true
-				if end_of_full_turn and hq_held:
-					_declare_game_over(0, "8th Iron Division captured and held the Syndicate HQ Command Bunker!")
+				# Player wins immediately if they capture either Syndicate HQ Bunker (8,3) or (8,4) or control all objectives
+				var hq1 := grid_map.get_tile(Vector2i(8, 3))
+				var hq2 := grid_map.get_tile(Vector2i(8, 4))
+				if (hq1 != null and hq1.is_objective and hq1.controlled_by == 0) or (hq2 != null and hq2.is_objective and hq2.controlled_by == 0):
+					_declare_game_over(0, "8th Iron Division captured the Syndicate HQ Command Bunker!")
 					return true
 				if end_of_full_turn and GlobalState.turn_number >= current_map_def.turn_limit:
 					_declare_game_over(1, "Turn limit expired before capturing the Syndicate HQ Bunker.")
 					return true
 
 			MapDefinition.StrategyMode.DEFENSE:
-				# AI wins if it holds all Citadel Objectives at turn end; Player wins by holding out through Turn Limit
-				if end_of_full_turn and tot_objs > 0 and p_objs == 0:
+				# AI wins if it captures all Citadel Objectives; Player wins by holding out through Turn Limit
+				if tot_objs > 0 and p_objs == 0:
 					_declare_game_over(1, "Syndicate forces overran all Citadel Bastion nodes!")
 					return true
 				if end_of_full_turn and GlobalState.turn_number >= current_map_def.turn_limit:
@@ -587,12 +590,11 @@ func _check_victory_conditions(end_of_full_turn: bool = false) -> bool:
 					return true
 
 			MapDefinition.StrategyMode.PITCHED_BATTLE:
-				if end_of_full_turn and tot_objs > 0 and p_objs == tot_objs:
+				if tot_objs > 0 and p_objs == tot_objs:
 					_declare_game_over(0, "8th Iron Division secured total control of all River Bridgeheads!")
 					return true
 				if end_of_full_turn and GlobalState.turn_number >= current_map_def.turn_limit:
-					# Majority of bridgeheads wins; an even split goes to whoever has more walkers left
-					if p_objs * 2 > tot_objs or (p_objs * 2 == tot_objs and p_count >= e_count):
+					if p_objs >= (tot_objs / 2 + 1) or (p_objs == tot_objs / 2 and p_count >= e_count):
 						_declare_game_over(0, "Coalition forces secured strategic superiority across the Rhine-Fulda crossing!")
 					else:
 						_declare_game_over(1, "Syndicate forces held the majority of bridgeheads at Turn limit.")

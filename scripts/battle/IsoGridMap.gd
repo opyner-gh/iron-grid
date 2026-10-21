@@ -212,8 +212,8 @@ func compute_reachable_tiles(unit: MechData, occupied_units: Dictionary) -> Dict
 	return reachable_info
 
 func clear_highlights() -> void:
-	reachable_info.clear()
-	current_path_preview.clear()
+	reachable_info = {}
+	current_path_preview = []
 	selected_coords = Vector2i(-1, -1)
 	queue_redraw()
 
@@ -222,9 +222,9 @@ func update_hover(local_mouse_pos: Vector2) -> void:
 	if new_hover != hovered_coords:
 		hovered_coords = new_hover
 		if reachable_info.has(hovered_coords):
-			current_path_preview = reachable_info[hovered_coords]["path"]
+			current_path_preview = reachable_info[hovered_coords]["path"].duplicate()
 		else:
-			current_path_preview.clear()
+			current_path_preview = []
 		tile_hovered.emit(hovered_coords, get_tile(hovered_coords))
 		queue_redraw()
 
